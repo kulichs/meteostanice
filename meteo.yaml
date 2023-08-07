@@ -1,0 +1,389 @@
+substitutions:
+  <<: !include common/substitutions_iot_base.yaml
+  devicename: 'meteo'
+  upper_devicename: Meteostanice
+  wifi_ip: '10.10.20.15'
+
+esphome:
+  name: $devicename
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework:
+    type: arduino
+    
+packages: # https://gitlab.com/wjcarpenter/esphome-colors.git
+  wifi: !include common/config_wifi_iot_static_ip.yaml
+  #wifi: !include common/config_wifi_dhcp.yaml
+  #wifi: !include common/config_wifi_multi_network.yaml
+  #esphome: !include common/config_esphome.yaml
+  ota: !include common/config_ota.yaml
+  web_server: !include common/config_web_server.yaml
+  #api: !include common/api_config_base.yaml
+  mqtt: !include common/mqtt_config_base.yaml
+
+# Enable logging
+logger:
+
+time:
+  - platform: sntp
+    id: sntp_time
+    servers: ${time_servers}
+    timezone: ${time_zone}
+
+dallas:
+  - pin: 10
+    update_interval: 30s
+
+i2c:
+  - sda: 19
+    scl: 18
+
+text_sensor:
+  - <<: !include common/text_sensor/wifi_info.yaml
+  - <<: !include common/text_sensor/version.yaml
+  - <<: !include common/text_sensor/aktualni_datum_cas.yaml
+  #- <<: !include common/text_sensor/template.yaml
+  - platform: template
+    name: "${upper_devicename} Směr větru"
+    id: wind_dir_card
+
+  - platform: template
+    name: '${upper_devicename} Větrná stupnice'
+    icon: 'mdi:tailwind'
+    id: wind_scale
+    update_interval: never
+
+  - platform: template
+    name: '${upper_devicename} Větrná stupnice v kodu'
+    icon: 'mdi:tailwind'
+    id: wind_scale_code
+
+button:
+  - <<: !include common/button/restart.yaml
+
+interval:
+  - interval: 60s
+    then:
+      - sensor.integration.reset: srazky_za_min # Vyresteuj srazky za minutu
+  
+  #- interval: 360s
+   # then:
+   #   - sensor.integration.reset: srazky_za_hod # Vyresteuj srazky za hodinu
+
+sensor:
+  - platform: adc
+    pin: 0
+    name: '${upper_devicename} VCC Volt'
+    attenuation: 11dB
+    filters:
+      - multiply: 1.7693877551
+
+  # teplota desky
+  - platform: dallas
+    address: 0x500416573b69ff28
+    name: "${upper_devicename} ESP32 teplota"
+
+  - platform: sht4x
+    temperature:
+      name: "${upper_devicename} Teplota"
+    humidity:
+      name: "${upper_devicename} Vlhkost"
+
+  # --sekce rychlost vetru--#
+  - platform: pulse_counter
+    pin:
+      number: GPIO20
+      mode:
+        input: true
+        pulldown: true
+    name: "${upper_devicename} Rychlost větru"
+    unit_of_measurement: "m/s"
+    icon: "mdi:weather-windy"
+    id: rychlost_vetru
+    #count_mode:
+    #  rising_edge: DISABLE
+    #  falling_edge: INCREMENT
+    internal_filter: 13us
+    update_interval: 5s
+    filters:
+      - multiply: 0.005560619 # pro m/s
+      - sliding_window_moving_average:
+          window_size: 20
+          send_every: 20
+
+  - platform: copy
+    name: '${upper_devicename} Průměrná rychlost větru'
+    icon: 'mdi:weather-windy'
+    id: wind_speed_avg
+    source_id: rychlost_vetru
+    unit_of_measurement: 'm/s'
+    filters:
+      - throttle_average: 60s # prumer za 60s
+
+  - platform: copy
+    name: '${upper_devicename} Rychlost větru (km/h)'
+    id: wind_speed_kmh
+    source_id: rychlost_vetru
+    unit_of_measurement: 'km/h'
+    icon: 'mdi:weather-windy'
+    filters:
+      - multiply: 3.6
+
+  - platform: copy
+    name: '${upper_devicename} Průměrná rychlost větru (km/h)'
+    icon: 'mdi:weather-windy'
+    id: wind_speed_kmh_avg
+    source_id: wind_speed_avg
+    unit_of_measurement: 'km/h'
+    filters:
+      - multiply: 3.6
+      - throttle_average: 60s # prumer za 60s
+    # Beaufortova stupnice vetru
+    on_value:
+      lambda: |-
+        if (x < 1) {
+          id(wind_scale_code).publish_state("0");
+          id(wind_scale).publish_state("Bezvětří");
+        } else if (x >= 1 && x < 6) {
+          id(wind_scale_code).publish_state("1");
+          id(wind_scale).publish_state("Vánek");
+        } else if (x >= 6 && x < 12) {
+          id(wind_scale_code).publish_state("2");
+          id(wind_scale).publish_state("Slabý vítr");
+        } else if (x >= 12 && x < 20) {
+          id(wind_scale_code).publish_state("3");
+          id(wind_scale).publish_state("Mírný vítr");
+        } else if (x >= 20 && x < 29) {
+          id(wind_scale_code).publish_state("4");
+          id(wind_scale).publish_state("Dosti čerstvý vítr");
+        } else if (x >= 29 && x < 39) {
+          id(wind_scale_code).publish_state("5");
+          id(wind_scale).publish_state("Čerstvý vítr");
+        } else if (x >= 39 && x < 50) {
+          id(wind_scale_code).publish_state("6");
+          id(wind_scale).publish_state("Silný vítr");
+        } else if (x >= 50 && x < 62) {
+          id(wind_scale_code).publish_state("7");
+          id(wind_scale).publish_state("Prudký vítr");
+        } else if (x >= 62 && x < 75) {
+          id(wind_scale_code).publish_state("8");
+          id(wind_scale).publish_state("Bouřlivý vítr");
+        } else if (x >= 75 && x < 89) {
+          id(wind_scale_code).publish_state("9");
+          id(wind_scale).publish_state("Vichřice");
+        } else if (x >= 89 && x < 103) {
+          id(wind_scale_code).publish_state("10");
+          id(wind_scale).publish_state("Silná vichřice");
+        } else if (x >= 103 && x < 118) {
+          id(wind_scale_code).publish_state("11");
+          id(wind_scale).publish_state("Mohutná vichřice");
+        } else if (x >= 118) {
+          id(wind_scale_code).publish_state("12");
+          id(wind_scale).publish_state("Orkán");
+        }
+
+  # --sekce srazkomer--#
+  # interval: 60s vynuluje minutovy citac
+  - platform: pulse_counter
+    pin: 
+      number: GPIO21
+      mode:
+        input: true
+        pulldown: true
+    unit_of_measurement: 'mm'
+    name: '${upper_devicename} Srážkoměr'
+    icon: 'mdi:weather-rainy'
+    id: srazko_mer
+    #internal: true
+    count_mode:
+      rising_edge: DISABLE
+      falling_edge: INCREMENT
+    internal_filter: 13us
+    update_interval: 60s
+    filters:
+      - multiply: 0.25 # v mm
+    accuracy_decimals: 4
+
+  - platform: integration
+    name: "${upper_devicename} Srážky za min"
+    id: srazky_za_min
+    time_unit: min
+    unit_of_measurement: 'mm'
+    sensor: srazko_mer
+
+  #- platform: integration
+   # name: "${upper_devicename} Srážky za hod"
+   # id: srazky_za_hod
+   # time_unit: h
+   # unit_of_measurement: 'mm'
+   # sensor: srazko_mer
+    
+  - platform: total_daily_energy
+    name: "${upper_devicename} Srážky za den"
+    power_id: srazko_mer
+    unit_of_measurement: 'mm'
+    icon: 'mdi:weather-rainy'
+    # x60 To convert to aggregated rain amount
+    filters:
+      - multiply: 60
+
+  # --sekce smer vetru --#
+  - platform: adc
+    pin: 3
+    id: adc_smer_vetru
+    internal: True # jen pro vnitrni pouziti
+    update_interval: 90s # interval pro vykreslovani vychozi 90s
+    filters:
+    accuracy_decimals: 3
+
+  - platform: resistance
+    sensor: adc_smer_vetru
+    id: resistance_sensor
+    configuration: DOWNSTREAM
+    resistor: 10kOhm # ve skutecnosti nainstalovany 100kOhm
+    internal: true
+    name: "odporovy senzor"
+    accuracy_decimals: 1
+    filters:
+      - heartbeat: 90s # interval na vykreslovani vychozi 90s
+    on_value:
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 3100
+              below: 3300
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "S" # sever
+            - sensor.template.publish:
+                id: wind_heading
+                state: 0.0
+                
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 700
+              below: 900
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "SV" # severo_vychod         
+            - sensor.template.publish:
+                id: wind_heading
+                state: 45.0            
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 70
+              below: 180
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "V" # vychod                
+            - sensor.template.publish:
+                id: wind_heading
+                state: 90.0          
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 190
+              below: 300
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "JV" # jiho_vychod    
+            - sensor.template.publish:
+                id: wind_heading
+                state: 135.0             
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 320
+              below: 600
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "J" # jih    
+            - sensor.template.publish:
+                id: wind_heading
+                state: 180.0            
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 1400
+              below: 1800
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "JZ" # jiho_zapad    
+            - sensor.template.publish:
+                id: wind_heading
+                state: 225.0              
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 3310
+              below: 3600
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "Z" # zapad    
+            - sensor.template.publish:
+                id: wind_heading
+                state: 270.0          
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 1950
+              below: 2300
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "SZ" # severo_zapad    
+            - sensor.template.publish:
+                id: wind_heading
+                state: 315.0
+
+  - platform: template
+    name: "${upper_devicename} Směr větru v stupních"
+    id: wind_heading
+    unit_of_measurement: "°"
+
+
+# Dallas cidlo
+# pin: 10
+# ds18b20 0x500416573b69ff28
+
+# SHT40 cidlo
+# sda: 19
+# scl: 18
+# adresa: 0x44
+    
+# smer vetru
+# A3
+# smer -- ADC Volt
+# Sever -- N -- 3132Ω -- 0.79v
+# Severo_Vychod -- NE -- 1643Ω -- 0.47v
+# Vychod -- E -- 292Ω -- 0.10v
+# Jiho_Vychod -- SE -- 602Ω -- 0.19v
+# Jih -- S -- 974Ω -- 0.29v
+# Jiho_Zapad -- SW -- 2372Ω -- 0.63v
+# Zapad -- W -- 3997Ω -- 0.94v
+# Severo_Zapad -- NW -- 3657Ω -- 0.88v
+
+# rychlost vetru
+# pin: 20
+
+# srazkomer
+# pin: 21
