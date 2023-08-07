@@ -2,7 +2,7 @@ substitutions:
   <<: !include common/substitutions_iot_base.yaml
   devicename: 'meteo'
   upper_devicename: Meteostanice
-  wifi_ip: '10.10.20.15'
+  wifi_ip: '10.x.x.x'
 
 esphome:
   name: $devicename
