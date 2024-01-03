@@ -19,7 +19,7 @@ packages: # https://gitlab.com/wjcarpenter/esphome-colors.git
   #wifi: !include common/config_wifi_multi_network.yaml
   #esphome: !include common/config_esphome.yaml
   ota: !include common/config_ota.yaml
-  web_server: !include common/config_web_server.yaml
+  #web_server: !include common/config_web_server.yaml
   #api: !include common/api_config_base.yaml
   mqtt: !include common/mqtt_config_base.yaml
 
@@ -94,7 +94,7 @@ sensor:
   # --sekce rychlost vetru--#
   - platform: pulse_counter
     pin:
-      number: GPIO20
+      number: GPIO5
       mode:
         input: true
         pulldown: true
@@ -188,7 +188,7 @@ sensor:
   # interval: 60s vynuluje minutovy citac
   - platform: pulse_counter
     pin: 
-      number: GPIO21
+      number: GPIO1
       mode:
         input: true
         pulldown: true
