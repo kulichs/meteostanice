@@ -383,7 +383,7 @@ sensor:
 # Severo_Zapad -- NW -- 3657Ω -- 0.88v
 
 # rychlost vetru
-# pin: 20
+# pin: GPIO5
 
 # srazkomer
-# pin: 21
+# pin: GPIO1
