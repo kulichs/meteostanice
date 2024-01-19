@@ -39,6 +39,7 @@ dallas:
 i2c:
   - sda: 19
     scl: 18
+    scan: false # uspora baterie, vychozi true
 
 text_sensor:
   - <<: !include common/text_sensor/wifi_info.yaml
