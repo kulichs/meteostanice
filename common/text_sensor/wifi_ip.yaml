@@ -1,0 +1,10 @@
+platform: wifi_info
+ip_address:
+  id: espipadresa
+  name: '$devicename IP adresa'
+mac_address:
+  id: espmacadresa
+  name: '$devicename MAC adresa'
+ssid:
+  id: espssidspojeni
+  name: '$devicename SSID pripojeno'
