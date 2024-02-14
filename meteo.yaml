@@ -1,18 +1,28 @@
 substitutions:
   <<: !include common/substitutions_iot_base.yaml
   devicename: 'meteo'
-  upper_devicename: Meteostanice
-  wifi_ip: '10.x.x.x'
+  upper_devicename: Meteo
+  wifi_ip: '10.10.20.15'
 
 esphome:
   name: $devicename
+  #platformio_options:
+  #  board_build.flash_mode: qio # qio , dio
+  #  board_build.f_flash: 40000000L
+  #  board_build.flash_size: 4MB
+  #  board_build.mcu: esp32c3
 
 esp32:
   board: esp32-c3-devkitm-1
-  variant: esp32c3
+  variant: ESP32C3
   framework:
-    type: arduino
-    
+    type: arduino # esp-idf , arduino
+   
+#wifi:
+  #ssid: kulichap1
+  #password: kulichjedoma
+  #power_save_mode: none
+
 packages: # https://gitlab.com/wjcarpenter/esphome-colors.git
   wifi: !include common/config_wifi_iot_static_ip.yaml
   #wifi: !include common/config_wifi_dhcp.yaml
@@ -21,7 +31,7 @@ packages: # https://gitlab.com/wjcarpenter/esphome-colors.git
   ota: !include common/config_ota.yaml
   #web_server: !include common/config_web_server.yaml
   #api: !include common/api_config_base.yaml
-  mqtt: !include common/mqtt_config_base.yaml
+  mqtt: !include common/mqtt_config_base_new.yaml
 
 # Enable logging
 logger:
@@ -32,20 +42,23 @@ time:
     servers: ${time_servers}
     timezone: ${time_zone}
 
-dallas:
-  - pin: 10
-    update_interval: 30s
-
 i2c:
   - sda: 19
     scl: 18
     scan: false # uspora baterie, vychozi true
 
+dallas:
+  - pin: 10
+
+button:
+  - <<: !include common/button/restart.yaml
+
 text_sensor:
-  - <<: !include common/text_sensor/wifi_info.yaml
+  - <<: !include common/text_sensor/wifi_ip.yaml
   - <<: !include common/text_sensor/version.yaml
-  - <<: !include common/text_sensor/aktualni_datum_cas.yaml
+  #- <<: !include common/text_sensor/aktualni_datum_cas.yaml
   #- <<: !include common/text_sensor/template.yaml
+  
   - platform: template
     name: "${upper_devicename} Směr větru"
     id: wind_dir_card
@@ -61,36 +74,37 @@ text_sensor:
     icon: 'mdi:tailwind'
     id: wind_scale_code
 
-button:
-  - <<: !include common/button/restart.yaml
-
 interval:
   - interval: 60s
     then:
       - sensor.integration.reset: srazky_za_min # Vyresteuj srazky za minutu
   
-  #- interval: 360s
-   # then:
-   #   - sensor.integration.reset: srazky_za_hod # Vyresteuj srazky za hodinu
-
 sensor:
+  - <<: !include common/sensor/uptime.yaml
+  - <<: !include common/sensor/wifi_signal.yaml
+  - <<: !include common/sensor/wifi_signal_procenta.yaml # musi byt i wifi_signal.yaml
+  
+  # tepota uvnit krabicky s ESP
+  - platform: dallas
+    address: 0x840416550c90ff28
+    name: '${upper_devicename} Teplota ESP'
+
+  # napeti baterky
   - platform: adc
     pin: 0
     name: '${upper_devicename} VCC Volt'
     attenuation: 11dB
     filters:
       - multiply: 1.7693877551
+    update_interval: 120s
 
-  # teplota desky
-  - platform: dallas
-    address: 0x500416573b69ff28
-    name: "${upper_devicename} ESP32 teplota"
-
+  # teplotni a vlhostni cidlo
   - platform: sht4x
     temperature:
       name: "${upper_devicename} Teplota"
     humidity:
-      name: "${upper_devicename} Vlhkost"
+      name: "${upper_devicename} Vlhkost"  
+    update_interval: 120s
 
   # --sekce rychlost vetru--#
   - platform: pulse_counter
@@ -183,54 +197,9 @@ sensor:
         } else if (x >= 118) {
           id(wind_scale_code).publish_state("12");
           id(wind_scale).publish_state("Orkán");
-        }
+        }        
 
-  # --sekce srazkomer--#
-  # interval: 60s vynuluje minutovy citac
-  - platform: pulse_counter
-    pin: 
-      number: GPIO1
-      mode:
-        input: true
-        pulldown: true
-    unit_of_measurement: 'mm'
-    name: '${upper_devicename} Srážkoměr'
-    icon: 'mdi:weather-rainy'
-    id: srazko_mer
-    #internal: true
-    count_mode:
-      rising_edge: DISABLE
-      falling_edge: INCREMENT
-    internal_filter: 13us
-    update_interval: 60s
-    filters:
-      - multiply: 0.25 # v mm
-    accuracy_decimals: 4
-
-  - platform: integration
-    name: "${upper_devicename} Srážky za min"
-    id: srazky_za_min
-    time_unit: min
-    unit_of_measurement: 'mm'
-    sensor: srazko_mer
-
-  #- platform: integration
-   # name: "${upper_devicename} Srážky za hod"
-   # id: srazky_za_hod
-   # time_unit: h
-   # unit_of_measurement: 'mm'
-   # sensor: srazko_mer
-    
-  - platform: total_daily_energy
-    name: "${upper_devicename} Srážky za den"
-    power_id: srazko_mer
-    unit_of_measurement: 'mm'
-    icon: 'mdi:weather-rainy'
-    # x60 To convert to aggregated rain amount
-    filters:
-      - multiply: 60
-
-  # --sekce smer vetru --#
+  # --sekce smer vetru -- Momentalne odpojen zdase ze odebira moc proudu #
   - platform: adc
     pin: 3
     id: adc_smer_vetru
@@ -277,6 +246,7 @@ sensor:
             - sensor.template.publish:
                 id: wind_heading
                 state: 45.0            
+  
       - if:
           condition:
             sensor.in_range:
@@ -290,6 +260,7 @@ sensor:
             - sensor.template.publish:
                 id: wind_heading
                 state: 90.0          
+  
       - if:
           condition:
             sensor.in_range:
@@ -303,6 +274,7 @@ sensor:
             - sensor.template.publish:
                 id: wind_heading
                 state: 135.0             
+  
       - if:
           condition:
             sensor.in_range:
@@ -316,9 +288,10 @@ sensor:
             - sensor.template.publish:
                 id: wind_heading
                 state: 180.0            
+  
       - if:
           condition:
-            sensor.in_range:
+           sensor.in_range:
               id: resistance_sensor
               above: 1400
               below: 1800
@@ -329,6 +302,7 @@ sensor:
             - sensor.template.publish:
                 id: wind_heading
                 state: 225.0              
+  
       - if:
           condition:
             sensor.in_range:
@@ -342,6 +316,7 @@ sensor:
             - sensor.template.publish:
                 id: wind_heading
                 state: 270.0          
+  
       - if:
           condition:
             sensor.in_range:
@@ -361,10 +336,52 @@ sensor:
     id: wind_heading
     unit_of_measurement: "°"
 
+  # --sekce srazkomer--#
+  # interval: 60s vynuluje minutovy citac
+  - platform: pulse_counter
+    pin: 
+      number: GPIO1
+      mode:
+        input: true
+        pulldown: true
+    unit_of_measurement: 'mm'
+    name: '${upper_devicename} Srážkoměr'
+    icon: 'mdi:weather-rainy'
+    id: srazko_mer
+    #internal: true
+    count_mode:
+      rising_edge: DISABLE
+      falling_edge: INCREMENT
+    internal_filter: 13us
+    update_interval: 60s
+    filters:
+      - multiply: 0.25 # v mm
+    accuracy_decimals: 4
 
-# Dallas cidlo
-# pin: 10
-# ds18b20 0x500416573b69ff28
+  - platform: integration
+    name: "${upper_devicename} Srážky za min"
+    id: srazky_za_min
+    time_unit: min
+    unit_of_measurement: 'mm'
+    sensor: srazko_mer
+
+  #- platform: integration
+   # name: "${upper_devicename} Srážky za hod"
+   # id: srazky_za_hod
+   # time_unit: h
+   # unit_of_measurement: 'mm'
+   # sensor: srazko_mer
+    
+  - platform: total_daily_energy
+    name: "${upper_devicename} Srážky za den"
+    power_id: srazko_mer
+    device_class: energy
+    unit_of_measurement: 'mm'
+    icon: 'mdi:weather-rainy'
+    # x60 To convert to aggregated rain amount
+    filters:
+      - multiply: 60
+
 
 # SHT40 cidlo
 # sda: 19
@@ -372,7 +389,7 @@ sensor:
 # adresa: 0x44
     
 # smer vetru
-# A3
+# A3 - Modra
 # smer -- ADC Volt
 # Sever -- N -- 3132Ω -- 0.79v
 # Severo_Vychod -- NE -- 1643Ω -- 0.47v
@@ -384,7 +401,13 @@ sensor:
 # Severo_Zapad -- NW -- 3657Ω -- 0.88v
 
 # rychlost vetru
-# pin: GPIO5
+# pin: GPIO5 - Zelena
 
 # srazkomer
-# pin: GPIO1
+# pin: GPIO1 - Seda
+
+# 3v3 - Oranzova
+# GND - Zluta
+
+# Dalass
+# pin: 10
