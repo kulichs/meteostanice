@@ -1,0 +1,5 @@
+platform: wifi_signal
+id: espwifisignal
+name: '$devicename WiFi Signal'
+entity_category: "diagnostic"
+update_interval: 1200s
