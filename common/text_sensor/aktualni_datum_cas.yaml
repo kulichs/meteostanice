@@ -1,0 +1,8 @@
+platform: template
+name: "Aktualní datum a čas"
+lambda: |-
+  char str[17];
+  time_t currTime = id(sntp_time).now().timestamp;
+  strftime(str, sizeof(str), "%Y-%m-%d %H:%M", localtime(&currTime));
+  return  { str };
+update_interval: 60s
