@@ -1,0 +1,3 @@
+platform: version
+name: "$devicename ESPHome Verze"
+id: esphomeverze
