@@ -1,0 +1,4 @@
+platform: uptime
+id: espuptime
+name: '$devicename Uptime'
+entity_category: "diagnostic"
