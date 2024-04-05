@@ -74,6 +74,36 @@ text_sensor:
     icon: 'mdi:tailwind'
     id: wind_scale_code
 
+  # znecisteni ovzdusi
+  - platform: template
+    name: "BME680 IAQ Hodnoceni"
+    icon: "mdi:checkbox-marked-circle-outline"
+    lambda: |-
+      if (int(id(iaq).state) <= 50) {
+        return {"Vynikajcí"};
+      }
+      else if (int(id(iaq).state) <= 100) {
+        return {"Dobrý"};
+      }
+      else if (int(id(iaq).state) <= 150) {
+        return {"Lehce znečištěné"};
+      }
+      else if (int(id(iaq).state) <= 200) {
+        return {"Středně znečištěné"};
+      }
+      else if (int(id(iaq).state) <= 250) {
+        return {"Silně znečištěné"};
+      }
+      else if (int(id(iaq).state) <= 350) {
+        return {"Hodně silně znečištěné"};
+      }
+      else if (int(id(iaq).state) <= 500) {
+        return {"Extrémně znečištěné"};
+      }
+      else {
+        return {"neznámé"};
+      }
+
 interval:
   - interval: 60s
     then:
@@ -103,8 +133,32 @@ sensor:
     temperature:
       name: "${upper_devicename} Teplota"
     humidity:
-      name: "${upper_devicename} Vlhkost"  
+      name: "${upper_devicename} Vlhkost"
+    address: 0x44  
     update_interval: 120s
+
+  # BME680
+  - platform: bme680
+    temperature:
+      name: "BME680 Teplota"
+      oversampling: 16x
+    pressure:
+      name: "BME680 Tlak"
+    humidity:
+      name: "BME680 Vlhkost"
+      id: "vlhkost"
+    gas_resistance:
+      name: "BME680 Plynové znečištění"
+      id: "plyn"
+    address: 0x77
+    update_interval: 60s
+  - platform: template
+    name: "BME680 Kvalita ovzduší"
+    id: iaq
+    icon: "mdi:gauge"
+    # vypocet: comp_gas = log(R_gas[ohm]) + 0.04 log(Ohm)/%rh * hum[%rh]
+    lambda: |-
+      return log(id(plyn).state) + 0.04 *  id(vlhkost).state;
 
   # --sekce rychlost vetru--#
   - platform: pulse_counter
@@ -199,7 +253,7 @@ sensor:
           id(wind_scale).publish_state("Orkán");
         }        
 
-  # --sekce smer vetru -- Momentalne odpojen zdase ze odebira moc proudu #
+  # --sekce smer vetru -- #
   - platform: adc
     pin: 3
     id: adc_smer_vetru
