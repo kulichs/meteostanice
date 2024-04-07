@@ -102,7 +102,7 @@ text_sensor:
       }
       else {
         return {"neznámé"};
-      }
+      }            
 
 interval:
   - interval: 60s
@@ -113,6 +113,9 @@ sensor:
   - <<: !include common/sensor/uptime.yaml
   - <<: !include common/sensor/wifi_signal.yaml
   - <<: !include common/sensor/wifi_signal_procenta.yaml # musi byt i wifi_signal.yaml
+
+  - platform: internal_temperature
+    name: "CPU Teplota"
   
   # tepota uvnit krabicky s ESP
   - platform: dallas
@@ -142,23 +145,34 @@ sensor:
     temperature:
       name: "BME680 Teplota"
       oversampling: 16x
+      id: "teplota"
     pressure:
       name: "BME680 Tlak"
+      icon: "mdi:gauge"
+      id: "tlak"
     humidity:
       name: "BME680 Vlhkost"
       id: "vlhkost"
     gas_resistance:
       name: "BME680 Plynové znečištění"
       id: "plyn"
+      icon: "mdi:omega"
     address: 0x77
     update_interval: 60s
+    
   - platform: template
     name: "BME680 Kvalita ovzduší"
     id: iaq
     icon: "mdi:gauge"
     # vypocet: comp_gas = log(R_gas[ohm]) + 0.04 log(Ohm)/%rh * hum[%rh]
     lambda: |-
-      return log(id(plyn).state) + 0.04 *  id(vlhkost).state;
+      return log(id(plyn).state) + 0.04 *  id(vlhkost).state;            
+
+  - platform: absolute_humidity
+    name: "Absolutní vlhkost"
+    icon: "mdi:water"
+    temperature: teplota
+    humidity: vlhkost
 
   # --sekce rychlost vetru--#
   - platform: pulse_counter
@@ -251,7 +265,7 @@ sensor:
         } else if (x >= 118) {
           id(wind_scale_code).publish_state("12");
           id(wind_scale).publish_state("Orkán");
-        }        
+        }                        
 
   # --sekce smer vetru -- #
   - platform: adc
@@ -437,7 +451,7 @@ sensor:
       - multiply: 60
 
 
-# SHT40 cidlo
+# SHT40 a BME680 cidlo
 # sda: 19
 # scl: 18
 # adresa: 0x44
