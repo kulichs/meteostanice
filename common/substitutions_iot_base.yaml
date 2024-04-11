@@ -1,0 +1,11 @@
+wifi_gateway: 'x.x.x.x'
+wifi_subnet: '255.255.255.0'
+wifi_dns1: 'x.x.x.x'
+wifi_dns2: 'x.x.x.x'
+
+mqtt_broker: 'x.x.x.x'
+
+time_servers: 'x.x.x.x'
+time_zone: 'Europe/Prague'
+
+# Za "x" si dopln svoje ip adresy
