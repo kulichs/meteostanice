@@ -31,8 +31,8 @@ esp32:
     type: arduino # esp-idf , arduino
    
 #wifi:
-  #ssid: kulichap1
-  #password: kulichjedoma
+  #ssid: kulicsap
+  #password: kulich14jedoma
   #power_save_mode: none
 
 packages: # https://gitlab.com/wjcarpenter/esphome-colors.git
@@ -404,7 +404,7 @@ sensor:
     sensor: adc_smer_vetru
     id: resistance_sensor
     configuration: DOWNSTREAM
-    resistor: 10kOhm # ve skutecnosti nainstalovany 100kOhm
+    resistor: 10kOhm # Jen pro mě "ve skutecnosti nainstalovany 100kOhm"
     internal: true
     name: "odporovy senzor"
     accuracy_decimals: 1
