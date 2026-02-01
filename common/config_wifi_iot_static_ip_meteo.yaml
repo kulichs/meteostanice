@@ -1,0 +1,19 @@
+wifi:
+  ssid: !secret wifiiot_name
+  password: !secret wifiiot_password
+
+  # NEJDULEZITEJSI: rychle pripojeni bez skenovani kanalu
+  fast_connect: true
+
+  # setreni energie, kdyz je WiFi zapnuta
+  power_save_mode: light
+
+  # zadny reboot loop, kdyz je WiFi chvili nedostupna
+  reboot_timeout: 0s
+
+  manual_ip:
+    static_ip: ${wifi_ip}
+    gateway: ${wifi_gateway}
+    subnet: ${wifi_subnet}
+    dns1: ${wifi_dns1}
+    dns2: ${wifi_dns2}

@@ -1,415 +1,333 @@
 substitutions:
   <<: !include common/substitutions_iot_base.yaml
-  devicename: 'meteo'
+  devicename: "meteo"
   upper_devicename: Meteo
-  wifi_ip: '10.10.20.15'
-  bme_address: "0x77"
-  co2_offset: "0"
-  humidity_offset: "14.8"
-  iaq_offset: "0"
-  pressure_offset: "0"
-  temperature_offset: "-1.7"
-  voc_offset: "0"
+  wifi_ip: "10.10.20.15"
+  verze: "1.6" # Zde vzdy po editaci prepis verzi
 
 esphome:
   name: $devicename
-  #platformio_options:
-  #  board_build.flash_mode: qio # qio , dio
-  #  board_build.f_flash: 40000000L
-  #  board_build.flash_size: 4MB
-  #  board_build.mcu: esp32c3
-
-external_components:
-  - source: github://schluggi/esphome@dev
-    components:
-      - bme68x_bsec
+  project:
+    name: "kulich.meteo"
+    version: $verze
 
 esp32:
   board: esp32-c3-devkitm-1
   variant: ESP32C3
   framework:
-    type: arduino # esp-idf , arduino
-   
-#wifi:
-  #ssid: kulicsap
-  #password: kulich14jedoma
-  #power_save_mode: none
+    type: esp-idf
 
-packages: # https://gitlab.com/wjcarpenter/esphome-colors.git
-  wifi: !include common/config_wifi_iot_static_ip.yaml
-  #wifi: !include common/config_wifi_dhcp.yaml
-  #wifi: !include common/config_wifi_multi_network.yaml
-  #esphome: !include common/config_esphome.yaml
-  ota: !include common/config_ota.yaml
-  #web_server: !include common/config_web_server.yaml
-  #api: !include common/api_config_base.yaml
+packages:
+  wifi: !include common/config_wifi_iot_static_ip_meteo.yaml
   mqtt: !include common/mqtt_config_base_new.yaml
+  #web_server: !include common/config_web_server.yaml
 
-# Enable logging
+# --- Globalni promenne ---
+globals:
+# --- OTA s ochranou proti vypnuti WiFi behem nahravani ---
+  - id: ota_active
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+# --- Globalni promenne pro uhrn srazek ---
+  - id: _srazky_denni_akumulator
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+
+  - id: _srazky_hod_akumulator
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+
+  - id: _srazky_30min_akumulator
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+
+  - id: _srazky_10min_akumulator
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+
+ota:
+  - platform: esphome
+    # password: !secret ota_password
+    on_begin:
+      then:
+        - lambda: |-
+            id(ota_active) = true;
+        - wifi.enable
+    on_end:
+      then:
+        - lambda: |-
+            id(ota_active) = false;
+    on_error:
+      then:
+        - lambda: |-
+            id(ota_active) = false;
+            
 logger:
+  level: WARN
+  baud_rate: 0
 
 time:
   - platform: sntp
     id: sntp_time
     servers: ${time_servers}
     timezone: ${time_zone}
+    on_time:
+      - seconds: 0
+        minutes: 0
+        hours: 0
+        then:
+          - lambda: |-
+              id(_srazky_denni_akumulator) = 0;
+          - component.update: srazky_za_den
+
+      - seconds: 0
+        minutes: 0
+        then:
+          - lambda: |-
+              id(_srazky_hod_akumulator) = 0;
+          - component.update: srazky_za_hodinu
+
+      - seconds: 0
+        minutes: /30
+        then:
+          - lambda: |-
+              id(_srazky_30min_akumulator) = 0;
+          - component.update: srazky_za_30min
+
+      - seconds: 0
+        minutes: /10
+        then:
+          - lambda: |-
+              id(_srazky_10min_akumulator) = 0;
+          - component.update: srazky_za_10min
+
+# --- I2C napajeni pres GPIO3 (METEO Mini v3.5) ---
+switch:
+  - platform: gpio
+    pin: GPIO3
+    id: i2c_pwr
+    restore_mode: ALWAYS_OFF
 
 i2c:
   - sda: 19
     scl: 18
-    scan: false # uspora baterie, vychozi true
+    scan: false
 
-dallas:
-  - pin: 10
+one_wire:
+  - platform: gpio
+    pin: 10
 
-bme68x_bsec:
-  address: "${bme_address}"
-  bsec_configuration: 0,0,2,2,189,1,0,0,0,0,0,0,213,8,0,0,52,0,1,0,0,192,168,71,64,49,119,76,0,0,97,69,0,0,97,69,137,65,0,63,0,0,0,63,0,0,64,63,205,204,204,62,10,0,3,0,216,85,0,100,0,0,96,64,23,183,209,56,28,0,2,0,0,244,1,150,0,50,0,0,128,64,0,0,32,65,144,1,0,0,112,65,0,0,0,63,16,0,3,0,10,215,163,60,10,215,35,59,10,215,35,59,13,0,5,0,0,0,0,0,100,35,41,29,86,88,0,9,0,229,208,34,62,0,0,0,0,0,0,0,0,218,27,156,62,225,11,67,64,0,0,160,64,0,0,0,0,0,0,0,0,94,75,72,189,93,254,159,64,66,62,160,191,0,0,0,0,0,0,0,0,33,31,180,190,138,176,97,64,65,241,99,190,0,0,0,0,0,0,0,0,167,121,71,61,165,189,41,192,184,30,189,64,12,0,10,0,0,0,0,0,0,0,0,0,173,6,11,0,1,2,2,207,61,208,65,149,110,24,66,180,108,177,65,219,148,13,192,70,132,58,66,163,58,140,192,12,99,178,192,185,59,255,193,178,213,175,63,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,110,211,55,195,237,6,56,67,0,0,0,0,0,0,0,0,26,3,255,63,61,246,7,192,171,201,228,192,249,144,215,63,237,199,104,193,128,158,216,64,117,140,155,63,137,120,129,67,108,109,253,191,0,0,0,0,81,64,57,68,103,241,231,64,109,29,152,192,209,43,193,63,93,54,30,65,197,46,92,64,128,27,224,192,6,20,144,191,56,179,130,64,0,0,0,0,43,156,59,196,33,217,100,194,104,77,72,65,15,103,175,191,249,252,12,193,63,117,253,192,233,5,141,65,155,42,25,64,13,88,249,191,0,0,0,0,48,141,122,190,204,150,44,192,36,162,29,193,96,59,39,189,54,202,48,65,151,205,68,64,79,105,55,193,53,120,53,192,77,211,32,192,0,0,0,0,193,207,92,65,239,201,76,65,208,70,82,66,81,63,96,65,48,179,0,194,251,96,242,193,176,51,96,194,153,114,98,66,144,247,64,65,0,0,0,0,219,179,180,63,175,218,119,191,51,71,207,191,245,145,129,63,53,16,244,65,138,208,117,65,138,97,36,66,228,15,32,195,126,91,103,191,0,0,0,0,26,151,170,193,64,105,49,193,46,223,189,193,129,203,168,193,40,91,49,66,4,87,107,65,205,202,37,65,244,36,154,66,240,85,39,193,0,0,0,0,166,96,87,192,114,7,68,191,233,32,214,63,84,249,40,192,45,78,132,64,145,33,253,61,49,43,187,192,244,32,77,67,224,250,71,191,0,0,0,0,103,75,214,190,206,141,252,63,99,15,178,65,80,79,166,190,214,25,146,192,165,29,24,194,18,228,219,193,113,246,235,194,49,115,232,63,0,0,0,0,17,211,124,64,56,252,251,62,25,118,148,193,168,234,94,64,131,157,82,64,217,119,236,65,120,245,240,65,17,69,168,195,49,51,8,63,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,131,217,97,66,182,104,101,194,0,0,0,0,0,0,0,0,6,142,142,195,229,54,143,67,0,0,0,0,0,0,0,0,25,224,153,66,217,51,154,194,0,0,0,0,0,0,0,0,142,36,105,194,199,63,110,66,0,0,0,0,0,0,0,0,206,73,250,193,138,69,249,65,0,0,0,0,0,0,0,0,123,173,127,66,20,116,128,194,0,0,0,0,0,0,0,0,49,65,49,64,205,213,107,192,0,0,0,0,0,0,0,0,189,250,179,194,164,98,180,66,0,0,0,0,0,0,0,0,96,182,197,67,155,71,197,195,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,185,28,179,73,64,25,141,76,223,26,138,76,222,207,133,76,87,134,164,75,23,127,159,75,166,9,155,75,94,120,170,73,95,221,177,73,93,44,182,73,0,0,0,0,0,0,0,0,0,0,0,0,30,55,120,73,215,98,32,76,7,79,34,76,161,238,36,76,119,151,160,75,119,96,157,75,202,75,154,75,118,89,111,73,133,239,116,73,219,140,120,73,0,0,128,63,0,0,128,63,0,0,128,63,0,0,0,87,1,254,0,2,1,5,48,117,100,0,44,1,112,23,151,7,132,3,197,0,92,4,144,1,64,1,64,1,144,1,48,117,48,117,48,117,48,117,100,0,100,0,100,0,48,117,48,117,48,117,100,0,100,0,48,117,48,117,8,7,8,7,8,7,8,7,8,7,100,0,100,0,100,0,100,0,48,117,48,117,48,117,100,0,100,0,100,0,48,117,48,117,100,0,100,0,255,255,255,255,255,255,255,255,255,255,44,1,44,1,44,1,44,1,44,1,44,1,44,1,44,1,44,1,44,1,44,1,44,1,44,1,44,1,255,255,255,255,255,255,255,255,255,255,8,7,8,7,8,7,8,7,8,7,8,7,8,7,8,7,8,7,8,7,8,7,8,7,8,7,8,7,255,255,255,255,255,255,255,255,255,255,112,23,112,23,112,23,112,23,112,23,112,23,112,23,112,23,112,23,112,23,112,23,112,23,112,23,112,23,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,220,5,220,5,220,5,255,255,255,255,255,255,220,5,220,5,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,48,117,0,5,10,5,0,2,0,10,0,30,0,5,0,5,0,5,0,5,0,5,0,5,0,64,1,100,0,100,0,100,0,200,0,200,0,200,0,64,1,64,1,64,1,10,0,0,0,0,145,33,0,0
-  state_save_interval: 6h
-  
+
 button:
   - <<: !include common/button/restart.yaml
 
 text_sensor:
   - <<: !include common/text_sensor/wifi_ip.yaml
   - <<: !include common/text_sensor/version.yaml
-  #- <<: !include common/text_sensor/aktualni_datum_cas.yaml
-  #- <<: !include common/text_sensor/template.yaml
-  
+
   - platform: template
-    name: "${upper_devicename} Směr větru"
+    name: "${upper_devicename} Smer vetru"
     id: wind_dir_card
 
   - platform: template
-    name: '${upper_devicename} Větrná stupnice'
-    icon: 'mdi:tailwind'
+    name: "${upper_devicename} Vetrna stupnice"
+    icon: "mdi:tailwind"
     id: wind_scale
     update_interval: never
 
   - platform: template
-    name: '${upper_devicename} Větrná stupnice v kodu'
-    icon: 'mdi:tailwind'
+    name: "${upper_devicename} Vetrna stupnice kod"
+    icon: "mdi:tailwind"
     id: wind_scale_code
 
-  # znecisteni ovzdusi
-  - platform: template
-    name: "BME680 IAQ Hodnoceni"
-    icon: "mdi:checkbox-marked-circle-outline"
-    lambda: |-
-      if (int(id(iaq).state) <= 50) {
-        return {"Vynikajcí"};
-      }
-      else if (int(id(iaq).state) <= 100) {
-        return {"Dobrý"};
-      }
-      else if (int(id(iaq).state) <= 150) {
-        return {"Lehce znečištěné"};
-      }
-      else if (int(id(iaq).state) <= 200) {
-        return {"Středně znečištěné"};
-      }
-      else if (int(id(iaq).state) <= 250) {
-        return {"Silně znečištěné"};
-      }
-      else if (int(id(iaq).state) <= 350) {
-        return {"Hodně silně znečištěné"};
-      }
-      else if (int(id(iaq).state) <= 500) {
-        return {"Extrémně znečištěné"};
-      }
-      else {
-        return {"neznámé"};
-      }   
-
-interval:
-  - interval: 60s
-    then:
-      - sensor.integration.reset: srazky_za_min # Vyresteuj srazky za minutu
-
-number:
-  - platform: template
-    name: "BME680 Teplota kompenzace"
-    id: temperature_offset_ui
-    unit_of_measurement: "°C"
-    min_value: -10
-    max_value: 10
-    step: 0.1
-    mode: box
-    update_interval: never
-    optimistic: true
-    restore_value: true
-    initial_value: 0
-    icon: "mdi:thermometer"
-    entity_category: config
-
-  - platform: template
-    name: "BME680 Vlhkost kompenzace"
-    id: humidity_offset_ui
-    unit_of_measurement: "%"
-    min_value: -50
-    max_value: 50
-    step: 0.1
-    mode: box
-    update_interval: never
-    optimistic: true
-    restore_value: true
-    initial_value: 0
-    icon: "mdi:water-percent"
-    entity_category: config
-
-  - platform: template
-    name: "BME680 Tlak kompenzace"
-    id: pressure_offset_ui
-    unit_of_measurement: "hPa"
-    min_value: -500
-    max_value: 500
-    step: 1
-    mode: box
-    update_interval: never
-    optimistic: true
-    restore_value: true
-    initial_value: 0
-    icon: "mdi:gauge"
-    entity_category: config
-
-  - platform: template
-    name: "CO2 kompenzace"
-    id: co2_offset_ui
-    unit_of_measurement: "ppm"
-    min_value: -1000
-    max_value: 1000
-    step: 1
-    mode: box
-    update_interval: never
-    optimistic: true
-    restore_value: true
-    initial_value: 0
-    icon: "mdi:test-tube"
-    entity_category: config
-
-  - platform: template
-    name: "VOC kompenzace"
-    id: voc_offset_ui
-    unit_of_measurement: "ppm"
-    min_value: -1000
-    max_value: 1000
-    step: 1
-    mode: box
-    update_interval: never
-    optimistic: true
-    restore_value: true
-    initial_value: 0
-    icon: "mdi:test-tube"
-    entity_category: config
-
-  - platform: template
-    name: "IAQ kompenzace"
-    id: iaq_offset_ui
-    unit_of_measurement: "IAQ"
-    min_value: -400
-    max_value: 400
-    step: 1
-    mode: box
-    update_interval: never
-    optimistic: true
-    restore_value: true
-    initial_value: 0
-    icon: "mdi:gauge"
-    entity_category: config
-
-  
 sensor:
   - <<: !include common/sensor/uptime.yaml
   - <<: !include common/sensor/wifi_signal.yaml
-  - <<: !include common/sensor/wifi_signal_procenta.yaml # musi byt i wifi_signal.yaml
-  
+  - <<: !include common/sensor/wifi_signal_procenta.yaml
+
   - platform: internal_temperature
     name: "CPU Teplota"
-  
-  # tepota uvnit krabicky s ESP
-  - platform: dallas
-    address: 0x840416550c90ff28
-    name: '${upper_devicename} Teplota ESP'
+    update_interval: 300s
 
-  # napeti baterky
+  # Teplota uvnitr krabicky s ESP
+  - platform: dallas_temp
+    address: 0x840416550c90ff28
+    resolution: 10
+    name: "${upper_devicename} Teplota ESP"
+    update_interval: 300s
+
+  # Napeti baterky (mer jen v mericim okynku)
   - platform: adc
+    id: vcc_volt
     pin: 0
-    name: '${upper_devicename} VCC Volt'
-    attenuation: 11dB
+    name: "${upper_devicename} VCC Volt"
+    attenuation: 12dB
     filters:
       - multiply: 1.7693877551
-    update_interval: 120s
+    update_interval: never
 
-  # teplotni a vlhostni cidlo
+  # SHT4x (I2C) - meri se jen v okynku (napajeni pres GPIO3)
   - platform: sht4x
+    id: sht4x_1
+    address: 0x44
+    update_interval: never
     temperature:
       name: "${upper_devicename} Teplota"
+      id: sht_teplota
     humidity:
       name: "${upper_devicename} Vlhkost"
-    address: 0x44  
-    update_interval: 120s
+      id: sht_vlhkost
 
-  # BME680
-  - platform: bme68x_bsec
+  - platform: template
+    name: "${upper_devicename} Rosny bod"
+    id: dew_point
+    unit_of_measurement: "°C"
+    accuracy_decimals: 2
+    lambda: |-
+      const float a = 17.62;
+      const float b = 243.12;
+      float T = id(sht_teplota).state;
+      float RH = id(sht_vlhkost).state;
+      if (isnan(T) || isnan(RH) || RH <= 0) return NAN;
+      float alpha = ((a * T) / (b + T)) + log(RH / 100.0);
+      return (b * alpha) / (a - alpha);
+    update_interval: 300s
+
+  - platform: template
+    name: "${upper_devicename} Absolutni vlhkost"
+    id: abs_humidity
+    unit_of_measurement: "g/m3"
+    accuracy_decimals: 2
+    lambda: |-
+      float T = id(sht_teplota).state;
+      float RH = id(sht_vlhkost).state;
+      if (isnan(T) || isnan(RH)) return NAN;
+      float svp = 6.112 * exp((17.62 * T) / (243.12 + T));
+      float ah = 216.7 * ((RH / 100.0) * svp) / (273.15 + T);
+      return ah;
+    update_interval: 300s
+
+  # BH1750 (I2C)
+  - platform: bh1750
+    id: illuminance
+    name: "${upper_devicename} Svetelna intenzita"
+    accuracy_decimals: 0
+    address: 0x23
+    update_interval: never
+
+  # BMP280 (I2C)
+  - platform: bmp280_i2c
+    id: bmp280_1
+    address: 0x77
+    iir_filter: 4x
+    update_interval: never
     temperature:
-      name: "BME680 Teplota"
-      id: "teplota"
-      sample_rate: ulp # update interval 5min
-      filters:
-        - offset: ${temperature_offset}
-        - lambda: "return x + id(temperature_offset_ui).state;"
+      name: "BMP280 Teplota"
+      id: bmp280_teplota
+      oversampling: 4x
     pressure:
-      name: "BME680 Tlak"
-      device_class: atmospheric_pressure
-      sample_rate: ulp # update interval 5min
-      filters:
-        - offset: ${pressure_offset}
-        - lambda: "return x + id(pressure_offset_ui).state;"
-    humidity:
-      name: "BME680 Vlhkost"
-      id: "vlhkost"
-      sample_rate: ulp # update interval 5min
-      filters:
-        - offset: ${humidity_offset}
-        - lambda: "return x + id(humidity_offset_ui).state;"
-    iaq:
-      name: "IAQ"
-      id: iaq
-      device_class: aqi
-      filters:
-        - offset: ${iaq_offset}
-        - lambda: "return x + id(iaq_offset_ui).state;"
-    co2_equivalent:
-      name: "CO2 Ekvivalent"
-      device_class: carbon_dioxide
-      filters:
-        - offset: ${co2_offset}
-        - lambda: "return x + id(co2_offset_ui).state;"
-    breath_voc_equivalent:
-      name: "Ekvivalent VOC z dechu"
-      device_class: volatile_organic_compounds
-      filters:
-        - offset: ${voc_offset}
-        - lambda: "return x + id(voc_offset_ui).state;"
+      name: "BMP280 Tlak"
+      id: bmp280_tlak
+      oversampling: 4x
 
-  - platform: absolute_humidity
-    name: "Absolutní vlhkost"
-    icon: "mdi:water"
-    temperature: teplota
-    humidity: vlhkost
+  - platform: template
+    name: "Tlak na hladinu more"
+    unit_of_measurement: "hPa"
+    accuracy_decimals: 1
+    lambda: |-
+      const float P = id(bmp280_tlak).state;
+      const float h = 277.0;
+      const float T = id(bmp280_teplota).state;
+      float sea = P * pow((1 - (0.0065 * h) / (T + 0.0065 * h + 273.15)), -5.257);
+      return roundf(sea * 10) / 10.0;
+    update_interval: 300s
 
-  # --sekce rychlost vetru--#
+  # --- Sekce rychlost vetru ---
   - platform: pulse_counter
     pin:
       number: GPIO5
       mode:
         input: true
         pulldown: true
-    name: "${upper_devicename} Rychlost větru"
+    name: "${upper_devicename} Rychlost vetru"
     unit_of_measurement: "m/s"
     icon: "mdi:weather-windy"
     id: rychlost_vetru
-    #count_mode:
-    #  rising_edge: DISABLE
-    #  falling_edge: INCREMENT
     internal_filter: 13us
-    update_interval: 5s
+    update_interval: 10s
     filters:
-      - multiply: 0.005560619 # pro m/s
+      - multiply: 0.005560619
       - sliding_window_moving_average:
-          window_size: 20
-          send_every: 20
+          window_size: 6
+          send_every: 6
 
   - platform: copy
-    name: '${upper_devicename} Průměrná rychlost větru'
-    icon: 'mdi:weather-windy'
+    name: "${upper_devicename} Prumerna rychlost vetru"
+    icon: "mdi:weather-windy"
     id: wind_speed_avg
     source_id: rychlost_vetru
-    unit_of_measurement: 'm/s'
+    unit_of_measurement: "m/s"
     filters:
-      - throttle_average: 60s # prumer za 60s
+      - throttle_average: 60s
 
   - platform: copy
-    name: '${upper_devicename} Rychlost větru (km/h)'
+    name: "${upper_devicename} Rychlost vetru (km/h)"
     id: wind_speed_kmh
     source_id: rychlost_vetru
-    unit_of_measurement: 'km/h'
-    icon: 'mdi:weather-windy'
+    unit_of_measurement: "km/h"
+    icon: "mdi:weather-windy"
     filters:
       - multiply: 3.6
 
   - platform: copy
-    name: '${upper_devicename} Průměrná rychlost větru (km/h)'
-    icon: 'mdi:weather-windy'
+    name: "${upper_devicename} Prumerna rychlost vetru (km/h)"
+    icon: "mdi:weather-windy"
     id: wind_speed_kmh_avg
     source_id: wind_speed_avg
-    unit_of_measurement: 'km/h'
+    unit_of_measurement: "km/h"
     filters:
       - multiply: 3.6
-      - throttle_average: 60s # prumer za 60s
-    # Beaufortova stupnice vetru
+      - throttle_average: 60s
     on_value:
       lambda: |-
-        if (x < 1) {
-          id(wind_scale_code).publish_state("0");
-          id(wind_scale).publish_state("Bezvětří");
-        } else if (x >= 1 && x < 6) {
-          id(wind_scale_code).publish_state("1");
-          id(wind_scale).publish_state("Vánek");
-        } else if (x >= 6 && x < 12) {
-          id(wind_scale_code).publish_state("2");
-          id(wind_scale).publish_state("Slabý vítr");
-        } else if (x >= 12 && x < 20) {
-          id(wind_scale_code).publish_state("3");
-          id(wind_scale).publish_state("Mírný vítr");
-        } else if (x >= 20 && x < 29) {
-          id(wind_scale_code).publish_state("4");
-          id(wind_scale).publish_state("Dosti čerstvý vítr");
-        } else if (x >= 29 && x < 39) {
-          id(wind_scale_code).publish_state("5");
-          id(wind_scale).publish_state("Čerstvý vítr");
-        } else if (x >= 39 && x < 50) {
-          id(wind_scale_code).publish_state("6");
-          id(wind_scale).publish_state("Silný vítr");
-        } else if (x >= 50 && x < 62) {
-          id(wind_scale_code).publish_state("7");
-          id(wind_scale).publish_state("Prudký vítr");
-        } else if (x >= 62 && x < 75) {
-          id(wind_scale_code).publish_state("8");
-          id(wind_scale).publish_state("Bouřlivý vítr");
-        } else if (x >= 75 && x < 89) {
-          id(wind_scale_code).publish_state("9");
-          id(wind_scale).publish_state("Vichřice");
-        } else if (x >= 89 && x < 103) {
-          id(wind_scale_code).publish_state("10");
-          id(wind_scale).publish_state("Silná vichřice");
-        } else if (x >= 103 && x < 118) {
-          id(wind_scale_code).publish_state("11");
-          id(wind_scale).publish_state("Mohutná vichřice");
-        } else if (x >= 118) {
-          id(wind_scale_code).publish_state("12");
-          id(wind_scale).publish_state("Orkán");
-        }                
+        if (x < 1) { id(wind_scale_code).publish_state("0");  id(wind_scale).publish_state("Bezvetri"); }
+        else if (x < 6) { id(wind_scale_code).publish_state("1");  id(wind_scale).publish_state("Vanek"); }
+        else if (x < 12) { id(wind_scale_code).publish_state("2"); id(wind_scale).publish_state("Slaby vitr"); }
+        else if (x < 20) { id(wind_scale_code).publish_state("3"); id(wind_scale).publish_state("Mirny vitr"); }
+        else if (x < 29) { id(wind_scale_code).publish_state("4"); id(wind_scale).publish_state("Dosti cerstvy vitr"); }
+        else if (x < 39) { id(wind_scale_code).publish_state("5"); id(wind_scale).publish_state("Cerstvy vitr"); }
+        else if (x < 50) { id(wind_scale_code).publish_state("6"); id(wind_scale).publish_state("Silny vitr"); }
+        else if (x < 62) { id(wind_scale_code).publish_state("7"); id(wind_scale).publish_state("Prudky vitr"); }
+        else if (x < 75) { id(wind_scale_code).publish_state("8"); id(wind_scale).publish_state("Bourlivy vitr"); }
+        else if (x < 89) { id(wind_scale_code).publish_state("9"); id(wind_scale).publish_state("Vichrice"); }
+        else if (x < 103) { id(wind_scale_code).publish_state("10"); id(wind_scale).publish_state("Silna vichrice"); }
+        else if (x < 118) { id(wind_scale_code).publish_state("11"); id(wind_scale).publish_state("Mohutna vichrice"); }
+        else { id(wind_scale_code).publish_state("12"); id(wind_scale).publish_state("Orkan"); }
 
-  # --sekce smer vetru -- #
+  # --- Sekce smer vetru ---
   - platform: adc
-    pin: 3
+    pin: GPIO1
     id: adc_smer_vetru
-    internal: True # jen pro vnitrni pouziti
-    update_interval: 90s # interval pro vykreslovani vychozi 90s
-    filters:
+    internal: true
+    update_interval: 120s
     accuracy_decimals: 3
 
   - platform: resistance
     sensor: adc_smer_vetru
     id: resistance_sensor
     configuration: DOWNSTREAM
-    resistor: 10kOhm # Jen pro mě "ve skutecnosti nainstalovany 100kOhm"
+    resistor: 10kOhm
     internal: true
-    name: "odporovy senzor"
+    name: "Odporovy senzor"
     accuracy_decimals: 1
     filters:
-      - heartbeat: 90s # interval na vykreslovani vychozi 90s
+      - heartbeat: 120s
     on_value:
       - if:
           condition:
@@ -420,11 +338,11 @@ sensor:
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "S" # sever
+                state: "S"
             - sensor.template.publish:
                 id: wind_heading
                 state: 0.0
-                
+
       - if:
           condition:
             sensor.in_range:
@@ -434,11 +352,11 @@ sensor:
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "SV" # severo_vychod         
+                state: "SV"
             - sensor.template.publish:
                 id: wind_heading
-                state: 45.0            
-  
+                state: 45.0
+
       - if:
           condition:
             sensor.in_range:
@@ -448,11 +366,11 @@ sensor:
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "V" # vychod                
+                state: "V"
             - sensor.template.publish:
                 id: wind_heading
-                state: 90.0          
-  
+                state: 90.0
+
       - if:
           condition:
             sensor.in_range:
@@ -462,11 +380,11 @@ sensor:
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "JV" # jiho_vychod    
+                state: "JV"
             - sensor.template.publish:
                 id: wind_heading
-                state: 135.0             
-  
+                state: 135.0
+
       - if:
           condition:
             sensor.in_range:
@@ -476,25 +394,25 @@ sensor:
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "J" # jih    
+                state: "J"
             - sensor.template.publish:
                 id: wind_heading
-                state: 180.0            
-  
+                state: 180.0
+
       - if:
           condition:
-           sensor.in_range:
+            sensor.in_range:
               id: resistance_sensor
               above: 1400
               below: 1800
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "JZ" # jiho_zapad    
+                state: "JZ"
             - sensor.template.publish:
                 id: wind_heading
-                state: 225.0              
-  
+                state: 225.0
+
       - if:
           condition:
             sensor.in_range:
@@ -504,11 +422,11 @@ sensor:
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "Z" # zapad    
+                state: "Z"
             - sensor.template.publish:
                 id: wind_heading
-                state: 270.0          
-  
+                state: 270.0
+
       - if:
           condition:
             sensor.in_range:
@@ -518,71 +436,129 @@ sensor:
           then:
             - text_sensor.template.publish:
                 id: wind_dir_card
-                state: "SZ" # severo_zapad    
+                state: "SZ"
             - sensor.template.publish:
                 id: wind_heading
                 state: 315.0
 
   - platform: template
-    name: "${upper_devicename} Směr větru v stupních"
+    name: "${upper_devicename} Smer vetru (stupne)"
     id: wind_heading
-    unit_of_measurement: "°"
+    unit_of_measurement: "deg"
 
-  # --sekce srazkomer--#
-  # interval: 60s vynuluje minutovy citac
+  # --- Sekce srazkomer ---
   - platform: pulse_counter
-    pin: 
-      number: GPIO1
+    pin:
+      number: GPIO4
       mode:
         input: true
         pulldown: true
-    unit_of_measurement: 'mm'
-    name: '${upper_devicename} Srážkoměr'
-    icon: 'mdi:weather-rainy'
+    unit_of_measurement: "mm"
+    name: "${upper_devicename} Srazkomer"
+    icon: "mdi:weather-rainy"
     id: srazko_mer
-    #internal: true
     count_mode:
       rising_edge: DISABLE
       falling_edge: INCREMENT
     internal_filter: 13us
     update_interval: 60s
     filters:
-      - multiply: 0.25 # v mm
+      - multiply: 0.25
     accuracy_decimals: 4
 
-  - platform: integration
-    name: "${upper_devicename} Srážky za min"
+  - platform: copy
     id: srazky_za_min
-    time_unit: min
-    unit_of_measurement: 'mm'
-    sensor: srazko_mer
-
-  #- platform: integration
-   # name: "${upper_devicename} Srážky za hod"
-   # id: srazky_za_hod
-   # time_unit: h
-   # unit_of_measurement: 'mm'
-   # sensor: srazko_mer
-    
-  - platform: total_daily_energy
-    name: "${upper_devicename} Srážky za den"
-    power_id: srazko_mer
-    device_class: energy
-    unit_of_measurement: 'mm'
-    icon: 'mdi:weather-rainy'
-    # x60 To convert to aggregated rain amount
+    name: "${upper_devicename} Srazky za min"
+    source_id: srazko_mer
+    unit_of_measurement: "mm"
+    accuracy_decimals: 4
     filters:
-      - multiply: 60
+      - delta: 0.0001
 
+  - platform: template
+    name: "${upper_devicename} Srazky za 30 min"
+    id: srazky_za_30min
+    unit_of_measurement: "mm"
+    icon: "mdi:weather-rainy"
+    accuracy_decimals: 2
+    lambda: |-
+      return id(_srazky_30min_akumulator);
+    update_interval: 60s
 
-# SHT40 a BME680
-# sda: 19
-# scl: 18
-# adresa: 0x44  SHT40
-# adresa: 0x77 BME680
-    
+  - platform: template
+    name: "${upper_devicename} Srazky za 10 min"
+    id: srazky_za_10min
+    unit_of_measurement: "mm"
+    icon: "mdi:weather-rainy"
+    accuracy_decimals: 2
+    lambda: |-
+      return id(_srazky_10min_akumulator);
+    update_interval: 60s
+
+  - platform: template
+    name: "${upper_devicename} Srazky za hod"
+    id: srazky_za_hodinu
+    unit_of_measurement: "mm"
+    icon: "mdi:weather-rainy"
+    accuracy_decimals: 2
+    lambda: |-
+      return id(_srazky_hod_akumulator);
+    update_interval: 60s
+
+  - platform: template
+    name: "${upper_devicename} Srazky za den"
+    id: srazky_za_den
+    unit_of_measurement: "mm"
+    icon: "mdi:weather-rainy"
+    accuracy_decimals: 2
+    lambda: |-
+      return id(_srazky_denni_akumulator);
+    update_interval: 60s
+
+# --- Pricitani srazek kazdou minutu (nechat, kvuli akumulatorum) ---
+interval:
+  - interval: 60s
+    then:
+      - lambda: |-
+          float srazka = id(srazky_za_min).state;
+          id(_srazky_denni_akumulator) += srazka;
+          id(_srazky_hod_akumulator) += srazka;
+          id(_srazky_30min_akumulator) += srazka;
+          id(_srazky_10min_akumulator) += srazka;
+
+  # --- Merici a odesilaci okynko (baterka) ---
+  # Uprav si interval podle potreby (napr. 5min / 10min)
+  - interval: 5min
+    then:
+      # 1) Zapni WiFi jen pokud nebezi OTA
+      - if:
+          condition:
+            lambda: "return id(ota_active) == false;"
+          then:
+            - wifi.enable
+
+      # 2) Dej cas na pripojeni WiFi + MQTT
+      - delay: 8s
+
+      # 3) Zapni napajeni I2C, zmer, vypni
+      - switch.turn_on: i2c_pwr
+      - delay: 300ms
+      - component.update: sht4x_1
+      - component.update: illuminance
+      - component.update: bmp280_1
+      - component.update: vcc_volt
+      - delay: 2s
+      - switch.turn_off: i2c_pwr
+
+      # 4) Vypni WiFi jen pokud nebezi OTA
+      - if:
+          condition:
+            lambda: "return id(ota_active) == false;"
+          then:
+            - wifi.disable
+
 # smer vetru
-# A3 - Modra
+# GPIO1 - Modra
 # smer -- ADC Volt
 # Sever -- N -- 3132Ω -- 0.79v
 # Severo_Vychod -- NE -- 1643Ω -- 0.47v
@@ -597,7 +573,7 @@ sensor:
 # pin: GPIO5 - Zelena
 
 # srazkomer
-# pin: GPIO1 - Seda
+# pin: GPIO4 - Seda
 
 # 3v3 - Oranzova
 # GND - Zluta
