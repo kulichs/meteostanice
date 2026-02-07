@@ -3,7 +3,7 @@ substitutions:
   devicename: "meteo"
   upper_devicename: Meteo
   wifi_ip: "10.10.20.15"
-  verze: "1.6" # Zde vzdy po editaci prepis verzi
+  verze: "1.7" # Zde vzdy po editaci prepis verzi
 
 esphome:
   name: $devicename
@@ -53,7 +53,7 @@ globals:
 
 ota:
   - platform: esphome
-    # password: !secret ota_password
+    password: !secret ota_password
     on_begin:
       then:
         - lambda: |-
@@ -145,6 +145,11 @@ text_sensor:
     name: "${upper_devicename} Vetrna stupnice kod"
     icon: "mdi:tailwind"
     id: wind_scale_code
+
+binary_sensor:
+  - platform: status
+    name: "${upper_devicename} Online"
+    id: dev_online
 
 sensor:
   - <<: !include common/sensor/uptime.yaml
@@ -530,32 +535,27 @@ interval:
   # Uprav si interval podle potreby (napr. 5min / 10min)
   - interval: 5min
     then:
-      # 1) Zapni WiFi jen pokud nebezi OTA
-      - if:
-          condition:
-            lambda: "return id(ota_active) == false;"
-          then:
-            - wifi.enable
-
-      # 2) Dej cas na pripojeni WiFi + MQTT
-      - delay: 8s
-
-      # 3) Zapni napajeni I2C, zmer, vypni
       - switch.turn_on: i2c_pwr
       - delay: 300ms
       - component.update: sht4x_1
       - component.update: illuminance
       - component.update: bmp280_1
       - component.update: vcc_volt
-      - delay: 2s
+      - delay: 1s
       - switch.turn_off: i2c_pwr
 
-      # 4) Vypni WiFi jen pokud nebezi OTA
+  - interval: 10min
+    then:
       - if:
           condition:
-            lambda: "return id(ota_active) == false;"
+            and:
+              - lambda: "return id(ota_active) == false;"
+              - not:
+                  binary_sensor.is_on: dev_online
           then:
-            - wifi.disable
+            - logger.log: "Offline too long, rebooting"
+            - button.press: restart_button
+
 
 # smer vetru
 # GPIO1 - Modra
